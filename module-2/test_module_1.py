@@ -1,8 +1,11 @@
 import sys
-from disasm_example import disassemble, getfile
 import pathlib
+import shutil
 
+from disasm_example import disassemble, getfile
 from disasm import disassemble as dis2
+
+
 
 
 
@@ -44,14 +47,20 @@ def test_large():
     sys.stdout.flush()
 
     direc = str(pathlib.Path(__file__).parent.resolve())
+
+
+
     in_path = direc + '\\data\\large_example.o'
-    out_path = direc + '\\data\\large_example_test_out.txt'
+    out_path = direc + '\\data\\large_example_test_out'
+    out_ext = ".txt"
+
+    shutil.copyfile(out_path + out_ext, out_path + "_old" + out_ext)
 
     # open input object file
     in_bytes = getfile(in_path)
 
     # open output file
-    sys.stdout = open(out_path, 'w')
+    sys.stdout = open(out_path + out_ext, 'w')
     dis2(in_bytes)
     sys.stdout.close()
 

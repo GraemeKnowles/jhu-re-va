@@ -38,8 +38,8 @@ ENC_HAS_DISPL = {
 DEF_OP_SIZE = 4
 
 ONEB_GLOBAL_OPCODE_LIST = {
-    0x01 : [0x01, "add", "mr", True, True, 0, DEF_OP_SIZE], 
-    0x03 : [0x03, "add", "rm", True, True, 0, 0],
+    0x01 : [0x01, "add", "mr", True], 
+    0x03 : [0x03, "add", "rm", True],
     0x05 : [0x05, "add eax,", "i", False],
     0x31 : [0x31, "xor", "mr", True],
     0x39 : [0x39, "cmp", "mr", True],
@@ -254,8 +254,9 @@ def get_operands(reg, mod, rm, opcode_info, bytes_used, opcode_byte, bytes, orig
     # elements are tuple (operand_str, is_mem, operand_bytes[])
     operands = {}
     valid_operands = True
-
+    
     if mod == 3:
+        # Direct register access, no memory operands
         if op_enc == "mi":
             last_op_idx = bytes_used + 4
             if last_op_idx >= num_bytes:
