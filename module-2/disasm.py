@@ -18,7 +18,7 @@ class OP_INFO_OFFSET(Enum) :
 ONEB_GLOBAL_OPCODE_LIST = {
     0x01 : [0x01, "add", True, "mr"], 
     0x03 : [0x03, "add", True, "rm"],
-    0x05 : [0x05, "add eax,", False, "id"],
+    0x05 : [0x05, "add eax,", False, "oi", 4],#actually i
     0x31 : [0x31, "xor", True, "mr"],
     0x39 : [0x39, "cmp", True, "mr"],
     0x81 : [0x81, "add", True, "mi"],
@@ -96,6 +96,9 @@ LABELS = {
 
 }
 
+REG_KEY = 0
+RM_KEY = 1
+
 def is_prefix(prefix):
     return prefix in PREFIX_LIST.keys()
 
@@ -159,7 +162,8 @@ def format_byte(byte):
 def format_disp(disp):
     return "0x{:08X}h".format(disp)
 
-
+def parse_int32(bytes):
+    pass
 
 def handle_sib(opcode_byte, opcode_info, bytes, orig_addr, modrm_tup):
     SIB_SPCL_CASE_BASE = 0b101
@@ -170,7 +174,7 @@ def handle_sib(opcode_byte, opcode_info, bytes, orig_addr, modrm_tup):
     (scale_bits, index_bits, base_bits) = parseSIB(sib)
     (mod, reg, rm) = modrm_tup
 
-    instruction_bytes = format_byte(sib)
+    instruction_bytes = [sib]
 
     if base_bits == SIB_SPCL_CASE_BASE and mod == SIB_SPCL_CASE_MOD:
         base_reg_str = " + " # no base register
@@ -181,108 +185,187 @@ def handle_sib(opcode_byte, opcode_info, bytes, orig_addr, modrm_tup):
     scale = pow(2, scale_bits)
     index_reg = GLOBAL_REGISTER_NAMES(index_bits)
 
-    displacement = ""#TODO
+    last_op_idx = bytes_used + 4
+    if last_op_idx >= len(bytes):
+        return (False, 0, [], "")
+    else:
+        # parse the next 4 bytes
+        operand_bytes = bytes[bytes_used:last_op_idx]
+        instruction_bytes += operand_bytes
+        displacement = format_disp(int.from_bytes(operand_bytes, BYTEODER))
+        bytes_used += 4
 
     instruction_str = index_reg.name + " * "  + str(scale) + base_reg_str + displacement
     
-    return (bytes_used, instruction_bytes, instruction_str)
+    return (True, bytes_used, instruction_bytes, instruction_str)
 
-def handle_modrm_instr(opcode_byte, opcode_info, bytes, orig_addr):
+def format_operands(encoding, operands):
+    def format_operand(op):
+        (op_str, is_mem, op_bytes) = op
+        
+        if is_mem:
+            return "[" + op_str + "]"
+        else:
+            return op_str
+    
+    if encoding == "mr":
+        op1 = operands[RM_KEY]
+        op2 = operands[REG_KEY]
+    elif encoding == "rm":
+        op1 = operands[REG_KEY]
+        op2 = operands[RM_KEY]
+    elif encoding == "mi":
+        op1 = operands[RM_KEY]
+        op2 = operands[REG_KEY]
+    else:
+        print("Unkown operand encoding")
+        op1 = ""
+        op2 = ""
+
+
+    return (format_operand(op1) + ", " + format_operand(op2), list(operands[REG_KEY][2]) + list(operands[RM_KEY][2]))
+
+def get_operands(reg, mod, rm, opcode_info, bytes_used, opcode_byte, bytes, orig_addr):
     num_bytes = len(bytes)
-    bytes_used = 0
+    op_enc = opcode_info[OP_INFO_OFFSET.OP_EN.value]
 
-    # get modrm
-    modrm = bytes[bytes_used]
-    bytes_used += 1 # we've consumed it now
-    mod,reg,rm = parseMODRM( modrm )
-
-
-    instruction_bytes = format_byte(opcode_byte)
-    instruction_bytes += format_byte(modrm)
-    instruction_str = ""
-
-    if mod == 0 and rm == 4:
-        pass
+    # elements are tuple (operand_str, is_mem, operand_bytes[])
+    operands = {}
+    valid_operands = True
 
     if mod == 3:
-        # Direct register access, no operand bytes
-        instruction_str += opcode_info[OP_INFO_OFFSET.INSTR.value] + " "
-        if opcode_info[OP_INFO_OFFSET.OP_EN.value] == "mr":
-            instruction_str += GLOBAL_REGISTER_NAMES(rm).name + ", " + GLOBAL_REGISTER_NAMES(reg).name
-        elif opcode_info[OP_INFO_OFFSET.OP_EN.value] == "rm":
-            instruction_str += GLOBAL_REGISTER_NAMES(reg).name + ", " + GLOBAL_REGISTER_NAMES(rm).name
+        if op_enc == "mi":
+            last_op_idx = bytes_used + 4
+            if last_op_idx >= num_bytes:
+                valid_operands = False
+            else:
+                # parse the next 4 bytes
+                operand_bytes = bytes[bytes_used:last_op_idx]
+                immediate = int.from_bytes(operand_bytes, BYTEODER)
+                bytes_used += 4
+
+                operands[RM_KEY] = (GLOBAL_REGISTER_NAMES(rm).name, False, [])
+                operands[REG_KEY] = (format_disp(immediate), False, operand_bytes)
+        else:
+            # Direct register access, no memory bytes
+            operands[REG_KEY] = (GLOBAL_REGISTER_NAMES(reg).name, False, [])
+            operands[RM_KEY] = (GLOBAL_REGISTER_NAMES(rm).name, False, [])
 
     elif mod == 2:
         #The r/m32 operand’s memory address is located in the r/m register + a 4-byte displacement.
-
-        last_op_idx = bytes_used+4
+        last_op_idx = bytes_used + 4
         if last_op_idx >= num_bytes:
-            return (bytes_used, instruction_bytes, instruction_str)
-        
-        operand_bytes = bytes[bytes_used:last_op_idx]
-        displacement = int.from_bytes(operand_bytes, BYTEODER)
+            valid_operands = False
+        else:
+            # parse the next 4 bytes
+            operand_bytes = bytes[bytes_used:last_op_idx]
+            displacement = int.from_bytes(operand_bytes, BYTEODER)
+            bytes_used += 4
 
-        instruction_bytes += ("{:02X}" * 4).format(*tuple(operand_bytes))
-        instruction_str = opcode_info[OP_INFO_OFFSET.INSTR.value] + " " + GLOBAL_REGISTER_NAMES(reg).name
-        instruction_str += ", [" + GLOBAL_REGISTER_NAMES(rm).name + " + " + format_disp(displacement) + "]"
+            operands[REG_KEY] = (GLOBAL_REGISTER_NAMES(reg).name, False, [])
+            operands[RM_KEY] = (GLOBAL_REGISTER_NAMES(rm).name + " + " + format_disp(displacement), True, operand_bytes)
 
-        bytes_used += 4
-
-        #print ('r/m32 operand is [ reg + disp32 ] -> please implement')
-        # will need to parse the displacement32
     elif mod == 1:
         #The r/m32 operand’s memory address is located in the r/m register + a 1-byte displacement
+        last_op_idx = bytes_used + 1
+        if last_op_idx >= num_bytes:
+            valid_operands = False
+        else:
+            # parse the next 4 bytes
+            operand_bytes = bytes[bytes_used:last_op_idx]
+            displacement = int.from_bytes(operand_bytes, BYTEODER)
+            bytes_used += 1
 
-        displacement = bytes[bytes_used]
-        bytes_used += 1
-        
-        instruction_bytes += format_byte(displacement)
+            mem_str = GLOBAL_REGISTER_NAMES(rm).name + " + " + format_disp(displacement)
+            reg_str = GLOBAL_REGISTER_NAMES(reg).name
 
-        instruction_str = opcode_info[OP_INFO_OFFSET.INSTR.value] + " " + GLOBAL_REGISTER_NAMES(reg).name
-        instruction_str += ", [" + GLOBAL_REGISTER_NAMES(rm).name + " + " + format_disp(displacement) + "]"
+            operands[REG_KEY] = (reg_str, False, [])
+            operands[RM_KEY] = (mem_str, True, operand_bytes)
 
-        # print ('r/m32 operand is [ reg + disp8 ] -> please implement')
-        # will need to parse the displacement8
     else:# mod == 0
         #The r/m32 operand’s memory address is located in the r/m register
         if rm == 5:
             # SPECIAL CASE: If the MOD is 00 and the R/M value is 101,
             # this is a special case. This indicates the r/m32 location is a
             # memory location that is a displacement32 only
-            last_op_idx = bytes_used + 4
-            if last_op_idx >= num_bytes:
-                return (bytes_used, instruction_bytes, instruction_str)
-            operand_bytes = bytes[bytes_used:last_op_idx]
-            operand = int.from_bytes(operand_bytes, BYTEODER)
-            instruction_bytes += ("{:02X}" * 4).format(*tuple(operand_bytes))
-            instruction_str = opcode_info[OP_INFO_OFFSET.INSTR.value] + " " 
-            instruction_str += GLOBAL_REGISTER_NAMES(reg).name + ", "
-            instruction_str += format_disp(operand)
-            bytes_used += 4
 
-            #print ("r/m32 operand is [disp32] -> please implement")
+            if op_enc == "mi":
+                last_op_idx = bytes_used + 8
+                if last_op_idx >= num_bytes:
+                    valid_operands = False
+                else:
+                    op_1_ed = bytes_used + 4
+                    op_2_ed = op_1_ed + 4
+
+                    # parse the next 4 bytes
+                    op1_bytes = bytes[bytes_used:op_1_ed]
+                    disp = int.from_bytes(op1_bytes, BYTEODER)
+                    bytes_used += 4
+
+                    # parse the next 4 bytes
+                    op2_bytes = bytes[op_1_ed:op_2_ed]
+                    immediate = int.from_bytes(op2_bytes, BYTEODER)
+                    bytes_used += 4
+
+                    operands[RM_KEY] = (format_disp(disp), True, op2_bytes)
+                    operands[REG_KEY] = (format_disp(immediate), False, op1_bytes)
+            else:
+                last_op_idx = bytes_used + 4
+                if last_op_idx >= num_bytes:
+                    valid_operands = False
+                else:
+                    # parse the next 4 bytes
+                    operand_bytes = bytes[bytes_used:last_op_idx]
+                    displacement = int.from_bytes(operand_bytes, BYTEODER)
+                    bytes_used += 4
+
+                    operands[REG_KEY] = (GLOBAL_REGISTER_NAMES(reg).name, False, [])
+                    operands[RM_KEY] = (format_disp(displacement), True, operand_bytes)
+
         elif rm == 4:
             # SIB byte is required
-            sib_plus_bytes = bytes[bytes_used:num_bytes]
+            (valid_operands, sib_bytes_used, sib_bytes, sib_str) = \
+                handle_sib(opcode_byte, opcode_info, bytes, orig_addr, (mod, reg, rm))
 
-            if len(sib_plus_bytes) <= 0:
-                return (bytes_used, instruction_bytes, instruction_str)
+            if valid_operands:
+                bytes_used += sib_bytes_used
+                operands[REG_KEY] = (GLOBAL_REGISTER_NAMES(reg).name, False, [])
+                operands[RM_KEY] = (sib_str, True, sib_bytes)
 
-            (sib_bytes_used, sib_instr_bytes, sib_instr_str) = handle_sib(opcode_byte, opcode_info, sib_plus_bytes, orig_addr, (mod, reg, rm))
             
-            bytes_used += sib_bytes_used
-            instruction_bytes += sib_instr_bytes
-            instruction_str += sib_instr_str
+        else: # rm == 0-3
+            # r/m32 operand is [reg]
+            operands[REG_KEY] = (GLOBAL_REGISTER_NAMES(reg).name, False, [])
+            operands[RM_KEY] = (GLOBAL_REGISTER_NAMES(rm).name, True, [])
+        
 
-            #print ("Indicates SIB byte required -> required to implement")
-        else:
-            
-            instruction_str += opcode_info[OP_INFO_OFFSET.INSTR.value] + " "
-            if opcode_info[OP_INFO_OFFSET.OP_EN.value] == "mr":
-                instruction_str += "[" + GLOBAL_REGISTER_NAMES(rm).name + "], " + GLOBAL_REGISTER_NAMES(reg).name
-            elif opcode_info[OP_INFO_OFFSET.OP_EN.value] == "rm":
-                instruction_str += GLOBAL_REGISTER_NAMES(reg).name + ", [" + GLOBAL_REGISTER_NAMES(rm).name + "]"
-            #print ("r/m32 operand is [reg] -> please implement")
+    return (valid_operands, operands, bytes_used)
+    
+
+def handle_modrm_instr(opcode_byte, opcode_info, bytes, orig_addr):
+    bytes_used = 0
+
+    # get modrm
+    modrm = bytes[bytes_used]
+    bytes_used += 1 # we've consumed it now
+    mod,reg,rm = parseMODRM( modrm )
+    op_enc = opcode_info[OP_INFO_OFFSET.OP_EN.value]
+
+    instruction_bytes = format_byte(opcode_byte)
+    instruction_bytes += format_byte(modrm)
+    instruction_str = opcode_info[OP_INFO_OFFSET.INSTR.value] + " "
+
+    (valid_operands, operands, op_bytes) = get_operands(reg, mod, rm, opcode_info, bytes_used, opcode_byte, bytes, orig_addr)
+    bytes_used = op_bytes
+
+    if valid_operands:
+        (operands_str, operand_bytes) = format_operands(op_enc, operands)
+        instruction_str += operands_str
+        if len(operand_bytes) > 0:
+            try:
+                instruction_bytes += ("{:02X}" * len(operand_bytes)).format(*tuple(operand_bytes))
+            except ValueError:
+                pass
 
     return (bytes_used, instruction_bytes, instruction_str)
 
@@ -335,6 +418,9 @@ def handle_nonrm_instr(opcode_byte, opcode_info, bytes, orig_addr, total_instr_b
             instruction_str += LABELS[target]
         else:
             instruction_str += displacement_str + "h"
+    else:
+        # unknown encoding, do the db xx
+        pass
 
     return (bytes_used, instruction_bytes, instruction_str)
 
