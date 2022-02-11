@@ -5,12 +5,12 @@
 00000007: 89E5               mov ebp, esp      
 00000009: 52                 push edx          
 0000000A: 51                 push ecx          
-0000000B: B844434241         mov 041424344h    
-00000010: 8B9508000000       mov edx, [ebp + 0x00000008h]
-00000016: 8B8D0C000000       mov ecx, [ebp + 0x0000000Ch]
+0000000B: B844434241         mov eax, 0x41424344h
+00000010: 8B9508000000       mov edx, ebp + 0x00000008h
+00000016: 8B8D0C000000       mov ecx, ebp + 0x0000000Ch
 0000001C: 01D1               add ecx, edx      
 0000001E: 89C8               mov eax, ecx      
 00000020: 5A                 pop edx           
 00000021: 59                 pop ecx           
 00000022: 5D                 pop ebp           
-00000023: C20800             retn 08h          
+00000023: C20800             retn 0x00000008h  

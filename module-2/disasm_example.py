@@ -13,62 +13,19 @@
 # recursive descent as well
 #
 ######################################################################
-from pickle import FALSE
 import sys
-from enum import Enum
-import struct
 
-class OPCODE_LIST_INDEX_ENUM(Enum) :
-    INSTR = 0
-    REQ_RM = 1
-    OP_EN = 2
-    BASE_OP = 3
-    OP_SIZE_BYTES = 4
 
 #
 # Key is the opcode
 # value is a list of useful information
 GLOBAL_OPCODE_LIST = {
-    0x01 : ['add', True, 'mr'], 
-    0x03 : ['add', True, 'rm'],
-    0x05 : ['add eax,', False, 'id'],
-    0x31 : ['xor', True, 'mr'],
-    0x39 : ['cmp', True, 'mr'],
-    0x74 : ['jz', False, 'd'],
-    0x89 : ['mov', True, 'mr'],
-    0x8b : ['mov', True, 'rm'],
-    0xb8 : ['mov', False, 'oi', 0xb8, 4],
-    0xc2 : ['retn', False, 'oi', 0xc2, 2],
-    
+    0x05 : ['add eax, ', False, 'id' ],
+    0x01 : ['add ', True, 'mr'], 
+    0x03 : ['add ', True, 'rm'],
 }
 
-class GLOBAL_REGISTER_NAMES(Enum) : 
-    eax = 0
-    ecx = 1
-    edx = 2
-    ebx = 3
-    esp = 4
-    ebp = 5
-    esi = 6
-    edi = 7
-
-# Build opcodes that use opcode + rd
-OP_EN_O_OPS = {
-    0x50 : ['push'],
-    0x58 : ['pop']
-}
-
-LABELS = {
-
-}
-
-BYTEODER = 'little'
-
-for reg in GLOBAL_REGISTER_NAMES:
-    for op_val in OP_EN_O_OPS:
-        entry = OP_EN_O_OPS[op_val]
-
-        GLOBAL_OPCODE_LIST[op_val + reg.value] = [entry[0], False, 'o', op_val]
+GLOBAL_REGISTER_NAMES = [ 'eax', 'ecx', 'edx', 'ebx', 'esp', 'ebp', 'esi', 'edi' ]
 
 def isValidOpcode(opcode):
     if opcode in GLOBAL_OPCODE_LIST.keys():
@@ -86,13 +43,7 @@ def printDisasm( l ):
     # Good idea to add a "global label" structure...
     # can check to see if "addr" is in it for a branch reference
 
-    label_count = 0
-
     for addr in sorted(l):
-        if addr in LABELS:
-            print("LABEL_{d}:".format(label_count))
-            label_count += 1
-
         print( '%s: %s' % (addr, l[addr]) )
 
 def disassemble(b):
@@ -107,12 +58,12 @@ def disassemble(b):
 
     i = 0
 
-    file_length = len(b)
-
-    while i < file_length:
+    while i < len(b):
 
         implemented = False
+        #opcode = ord(b[i])	#If using python2.7
         opcode = b[i]	#current byte to work on
+        #instruction_bytes = "%02x" % ord(b[i]) # if using python 2.7
         instruction_bytes = "%02x" % b[i]
         instruction = ''
         orig_index = i
@@ -121,15 +72,17 @@ def disassemble(b):
 
         # Hint this is hear for a reason, but is this the only spot
         # such a check is required in?
-        if i >= file_length:
+        if i >= len(b):
            break
+
+        
 
         if isValidOpcode( opcode ):
             print ('Found valid opcode')
             if 1:
                 li = GLOBAL_OPCODE_LIST[opcode]
                 print ('Index -> %d' % i )
-                if li[OPCODE_LIST_INDEX_ENUM.REQ_RM.value] == True:
+                if li[1] == True:
                     print ('REQUIRES MODRM BYTE')
                     #modrm = ord(b[i])
                     modrm = b[i]
@@ -143,46 +96,21 @@ def disassemble(b):
                     if mod == 3:
                         implemented = True
                         print ('r/m32 operand is direct register')
-                        instruction += li[OPCODE_LIST_INDEX_ENUM.INSTR.value] + " "
+                        instruction += li[0]
                         if li[2] == 'mr':
-                            instruction += GLOBAL_REGISTER_NAMES(rm).name
+                            instruction += GLOBAL_REGISTER_NAMES[rm]
                             instruction += ', '
-                            instruction += GLOBAL_REGISTER_NAMES(reg).name
+                            instruction += GLOBAL_REGISTER_NAMES[reg]
                         elif li[2] == 'rm':
-                            instruction += GLOBAL_REGISTER_NAMES(reg).name
+                            instruction += GLOBAL_REGISTER_NAMES[reg]
                             instruction += ', '
-                            instruction += GLOBAL_REGISTER_NAMES(rm).name
+                            instruction += GLOBAL_REGISTER_NAMES[rm]
 
                     elif mod == 2:
-                        implemented = True
-
-                        last_op_idx = i+4
-                        if last_op_idx >= file_length:
-                            break
-                        
-                        operand_bytes = b[i:last_op_idx]
-                        displacement = int.from_bytes(operand_bytes, BYTEODER)
-
-                        instruction_bytes += " {:02x} {:02x} {:02x} {:02x}".format(*tuple(operand_bytes))
-                        instruction = li[OPCODE_LIST_INDEX_ENUM.INSTR.value] + " " + GLOBAL_REGISTER_NAMES(reg).name
-                        instruction += ", [" + GLOBAL_REGISTER_NAMES(rm).name + (" + 0%xh" % displacement) + "]"
-
-                        outputList[ "%08X" % orig_index ] = instruction_bytes + " " + instruction
-
-                        i += 4
-
-                        #print ('r/m32 operand is [ reg + disp32 ] -> please implement')
+                        print ('r/m32 operand is [ reg + disp32 ] -> please implement')
                         # will need to parse the displacement32
                     elif mod == 1:
-                        implemented = True
-                        displacement = b[i]
-                        i += 1
-                        instruction_bytes += " {:02x}".format(displacement)
-
-                        instruction = li[OPCODE_LIST_INDEX_ENUM.INSTR.value] + " " + GLOBAL_REGISTER_NAMES(reg).name
-                        instruction += ", [" + GLOBAL_REGISTER_NAMES(rm).name + (" + {:02x}h".format(displacement)) + "]"
-
-                       # print ('r/m32 operand is [ reg + disp8 ] -> please implement')
+                        print ('r/m32 operand is [ reg + disp8 ] -> please implement')
                         # will need to parse the displacement8
                     else:
                         if rm == 5:
@@ -198,49 +126,8 @@ def disassemble(b):
                     else:
                         outputList[ "%08X" % orig_index ] = 'db %02x' % (int(opcode) & 0xff)
                 else:
-                    operand_encoding = li[OPCODE_LIST_INDEX_ENUM.OP_EN.value]
-                    if operand_encoding == "o":
-                        base_op = li[OPCODE_LIST_INDEX_ENUM.BASE_OP.value]
-                        reg = GLOBAL_REGISTER_NAMES(opcode - base_op)
-                        
-                        instruction = li[OPCODE_LIST_INDEX_ENUM.INSTR.value] + " " + reg.name
-
-                        print ('Adding to list ' + instruction)
-                        outputList[ "%08X" % orig_index ] = instruction_bytes + ' ' + instruction
-
-                    elif operand_encoding == "zo":
-                        instruction = li[OPCODE_LIST_INDEX_ENUM.INSTR.value]
-                        print ('Adding to list ' + instruction)
-                        outputList[ "%08X" % orig_index ] = instruction_bytes + ' ' + instruction
-
-                    elif operand_encoding == "oi":
-                        # check if enough bytes to form operand
-                        oper_num_bytes = li[OPCODE_LIST_INDEX_ENUM.OP_SIZE_BYTES.value]
-
-                        last_op_idx = i+oper_num_bytes
-                        if last_op_idx > file_length:
-                            break
-                        
-                        operand_bytes = b[i:last_op_idx]
-                        operand_32 = int.from_bytes(operand_bytes, BYTEODER)
-
-                        # get 4 bytes
-                        instruction_bytes += (" {:02x}" * oper_num_bytes).format(*tuple(operand_bytes))
-                        instruction = li[OPCODE_LIST_INDEX_ENUM.INSTR.value] + (" 0%xh" % operand_32)
-
-                        outputList[ "%08X" % orig_index ] = instruction_bytes + " " + instruction
-
-                        i += oper_num_bytes
-                    
-                    elif operand_encoding == "d":
-                        displacement = b[i]
-                        i += 1
-
-                        instruction_bytes += " {:02x}".format(displacement)
-                        instruction = li[OPCODE_LIST_INDEX_ENUM.INSTR.value] + " {:02x}h".format(displacement) 
-                        
-                        outputList[ "%08X" % orig_index ] = instruction_bytes + " " + instruction
-
+                    print ('Does not require MODRM - modify to complete the instruction and consume the appropriate bytes')
+                    outputList[ "%08X" % orig_index ] = 'db %02x' % (int(opcode) & 0xff)
             #except:
             else:
                 outputList[ "%08X" % orig_index ] = 'db %02x' % (int(opcode) & 0xff)
@@ -250,6 +137,7 @@ def disassemble(b):
 
 
     printDisasm (outputList)
+
 
 def getfile(filename):	
     with open(filename, 'rb') as f:

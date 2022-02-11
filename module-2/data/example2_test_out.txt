@@ -4,13 +4,13 @@
 00000004: 51                 push ecx          
 00000005: 39D1               cmp ecx, edx      
 00000007: 740F               jz offset_00000018h
-00000009: B844434241         mov 041424344h    
-0000000E: 8B5508             mov edx, [ebp + 0x00000008h]
-00000011: 8B4D0C             mov ecx, [ebp + 0x0000000Ch]
+00000009: B844434241         mov eax, 0x41424344h
+0000000E: 8B5508             mov edx, [ebp + 08]
+00000011: 8B4D0C             mov ecx, [ebp + 0C]
 00000014: 01D1               add ecx, edx      
 00000016: 89C8               mov eax, ecx      
 offset_00000018h:
 00000018: 5A                 pop edx           
 00000019: 59                 pop ecx           
 0000001A: 5D                 pop ebp           
-0000001B: C20800             retn 08h          
+0000001B: C20800             retn 0x00000008h  

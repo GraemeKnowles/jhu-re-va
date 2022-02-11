@@ -2,8 +2,8 @@ import sys
 import pathlib
 import shutil
 
-from disasm_example import disassemble, getfile
-from disasm import disassemble as dis2
+#from disasm_example import disassemble, getfile
+from disasm3 import disassemble, getfile
 
 
 
@@ -21,7 +21,7 @@ def test_example1():
 
     # open output file
     sys.stdout = open(out_path, 'w')
-    dis2(in_bytes)
+    disassemble(in_bytes)
     sys.stdout.close()
 
     assert True
@@ -38,7 +38,7 @@ def test_example2():
 
     # open output file
     sys.stdout = open(out_path, 'w')
-    dis2(in_bytes)
+    disassemble(in_bytes)
     sys.stdout.close()
 
     assert True
@@ -61,7 +61,7 @@ def test_large():
 
     # open output file
     sys.stdout = open(out_path + out_ext, 'w')
-    dis2(in_bytes)
+    disassemble(in_bytes)
     sys.stdout.close()
 
     assert True
