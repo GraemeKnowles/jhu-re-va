@@ -5,34 +5,36 @@ import sys
 from enum import Enum
 import queue
 from typing import Tuple
+import argparse
+import os.path
 
-from pyparsing import Opt
-
+# 32 bit architecture
 DEF_OP_SIZE = 4
 
+# operand types to process differently
 class OpTypes(Enum):
     Reg = 0
     RM = 1
     Included = 2
     Immediate = 4
     RD = 5
-    Displacement = 6
 
+# class that holds information about the operands
 class OpInfo() :
     
-    def __init__(self, base_op : int, instr_str : str, req_rm : bool, encoding : str, op_types_arr : OpTypes, ext : str, disp_len: int, imm_len : int):
+    def __init__(self, base_op : int, instr_str : str, req_rm : bool, encoding : str, op_types_arr : OpTypes, ext : str, imm_len : int):
         self.base_op = base_op
         self.instr = instr_str
         self.req_rm = req_rm
         self.encoding = encoding
         self.op_types = op_types_arr
         self.ext = ext
-        self.disp_len = disp_len
         self.imm_len = imm_len
 
+# holds a parsed instruction
 class Instruction() :
     
-    def __init__(self, prefix, op, mod, reg, rm, scale, index, base, disp, rm_disp_len, imm, orig_addr, total_len):
+    def __init__(self, prefix, op, mod, reg, rm, scale, index, base, disp, rm_disp_len, imm, orig_addr, total_len, has_sib):
         self.prefix = prefix
         self.op = op
         self.mod = mod
@@ -46,6 +48,7 @@ class Instruction() :
         self.imm = imm
         self.orig_addr = orig_addr
         self.total_len = total_len
+        self.has_sib = has_sib
 
 ONEB_GLOBAL_OPCODE_LIST = {
 
@@ -59,37 +62,70 @@ def add_opinfo_to_list(list, op_code, op_info):
     else:
         list[op_code] = [op_info]
 
-def add_op_to_list(list, op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len):
-    op_info = OpInfo(op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len)
+def add_op_to_list(list, op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len):
+    op_info = OpInfo(op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len)
     if op_code in list:
         list[op_code].append(op_info)
     else:
         list[op_code] = [op_info]
 
-#def add_op_with_ext(op_code, instr_str, req_rm, encoding, op_types_arr, ext):
-#    add_op_to_list(op_code, instr_str, req_rm, encoding, op_types_arr, ext, 0)
+def add_op(op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm):
+    add_op_to_list(ONEB_GLOBAL_OPCODE_LIST, op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm)
 
-#def add_op_woi(op_code, instr_str, req_rm, encoding, op_types_arr, imm_len):
-#    add_op_to_list(op_code, instr_str, req_rm, encoding, op_types_arr, "", imm_len)
-
-def add_op(op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm):
-    add_op_to_list(ONEB_GLOBAL_OPCODE_LIST, op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm)
-
-add_op(0x01, "add", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0, 0)
-add_op(0x03, "add", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0, 0)
-add_op(0x05, "add eax", False, "i", [OpTypes.Included, OpTypes.Immediate], "", 0, DEF_OP_SIZE)
-add_op(0x31, "xor", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0, 0)
-add_op(0x39, "cmp", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0, 0)
-add_op(0x81, "add", True, "mi", [OpTypes.RM, OpTypes.Immediate], "0", 0, DEF_OP_SIZE)
-add_op(0x89, "mov", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0, 0)
-add_op(0x8b, "mov", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0, 0)
-add_op(0xc2, "retn", False, "i", [OpTypes.Immediate], "", 0, 2)
-add_op(0x33, "xor", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0, 0)
-
+add_op(0x01, "add", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0)
+add_op(0x03, "add", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0)
+add_op(0x05, "add eax", False, "i", [OpTypes.Included, OpTypes.Immediate], "", DEF_OP_SIZE)
+add_op(0x25, "and eax", False, "i", [OpTypes.Included, OpTypes.Immediate], "", DEF_OP_SIZE)
+add_op(0x81, "and", True, "mi", [OpTypes.RM, OpTypes.Immediate], "4", DEF_OP_SIZE)
+add_op(0x21, "and", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0)
+add_op(0x23, "and", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", DEF_OP_SIZE)
+add_op(0x39, "cmp", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0)
+add_op(0x81, "add", True, "mi", [OpTypes.RM, OpTypes.Immediate], "0", DEF_OP_SIZE)
+add_op(0x89, "mov", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0)
+add_op(0x8b, "mov", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0)
+add_op(0x3D, "cmp", False, "i", [OpTypes.Included, OpTypes.Immediate], "", DEF_OP_SIZE)
+add_op(0x81, "cmp", True, "mi", [OpTypes.RM, OpTypes.Immediate], "7", DEF_OP_SIZE)
+add_op(0x3B, "cmp", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0)
+add_op(0xFF, "dec", True, "m", [OpTypes.RM], "1", 0)
+add_op(0xF7, "idiv", True, "m", [OpTypes.RM], "7", 0)
+add_op(0xFF, "inc", True, "m", [OpTypes.RM], "0", 0)
+add_op(0x8D, "lea", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0)
+add_op(0xC7, "mov", True, "mi", [OpTypes.RM, OpTypes.Immediate], "0", DEF_OP_SIZE)
+add_op(0xA5, "movsd", False, "zo", [], "", 0)
+add_op(0x90, "nop", False, "zo", [], "", 0)
+add_op(0xF7, "not", True, "m", [OpTypes.RM], "2",0)
+add_op(0x0D, "or eax", False, "i", [OpTypes.Included, OpTypes.Immediate], "", DEF_OP_SIZE)
+add_op(0x81, "or", True, "mi", [OpTypes.RM, OpTypes.Immediate], "1", DEF_OP_SIZE)
+add_op(0x09, "or", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0)
+add_op(0x0B, "or", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0)
+add_op(0x8F, "pop", True, "m", [OpTypes.RM], "0", 0)
+add_op(0xFF, "push", True, "m", [OpTypes.RM], "6", 0)
+add_op(0x68, "push", False, "i", [OpTypes.Immediate], "", DEF_OP_SIZE)
+add_op(0xA7, "cmpsd", False, "zo", [], "", 0)
+add_op(0xCB, "retf", False, "zo", [], "", 0)
+add_op(0xCA, "retf", False, "i", [OpTypes.Immediate], "", 2)
+add_op(0xC2, "retn", False, "i", [OpTypes.Immediate], "", 2)
+add_op(0xC3, "retn", False, "zo", [], "", 0)
+add_op(0x2D, "sub eax", False, "i", [OpTypes.Included, OpTypes.Immediate], "", DEF_OP_SIZE)
+add_op(0x81, "sub", True, "mi", [OpTypes.RM, OpTypes.Immediate], "5", DEF_OP_SIZE)
+add_op(0x29, "sub", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0)
+add_op(0x2B, "sub", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0)
+add_op(0xA9, "test eax", False, "i", [OpTypes.Included, OpTypes.Immediate], "", DEF_OP_SIZE)
+add_op(0xF7, "test", True, "mi", [OpTypes.RM, OpTypes.Immediate], "0", DEF_OP_SIZE)
+add_op(0x85, "test", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0)
+add_op(0x35, "xor eax", False, "i", [OpTypes.Included, OpTypes.Immediate], "", DEF_OP_SIZE)
+add_op(0x81, "xor", True, "mi", [OpTypes.RM, OpTypes.Immediate], "6", DEF_OP_SIZE)
+add_op(0x31, "xor", True, "mr", [OpTypes.RM, OpTypes.Reg], "r", 0)
+add_op(0x33, "xor", True, "rm", [OpTypes.Reg, OpTypes.RM], "r", 0)
 
 TWOB_GLOBAL_OPCODE_LIST = {
     
 }
+
+def add_twob_op(op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len):
+    add_op_to_list(TWOB_GLOBAL_OPCODE_LIST, op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len)
+
+add_twob_op(0xAE, "clflush", False, "m", [OpTypes.RM], "0", 0)
 
 THREEB_GLOBAL_OPCODE_LIST = {
 
@@ -99,26 +135,27 @@ JUMP_INSTR_LIST = {
 
 }
 
-def add_jmp_op(op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len):
-    add_op_to_list(JUMP_INSTR_LIST, op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len)
-    add_op(op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len)
+def add_jmp_op(op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len):
+    add_op_to_list(JUMP_INSTR_LIST, op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len)
+    add_op(op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len)
 
-add_jmp_op(0xEB, "jmp", False, "d", [OpTypes.Displacement], "", 1, 0)
-add_jmp_op(0xE9, "jmp", False, "d", [OpTypes.Displacement], "", DEF_OP_SIZE, 0)
-add_jmp_op(0xFF, "jmp", True, "m", [OpTypes.RM], "4", 0, 0)
-add_jmp_op(0x74, "jz", False, "d", [OpTypes.Displacement], "", 1, 0)
-add_jmp_op(0xE8, "call", False, "d", [OpTypes.Displacement], "", DEF_OP_SIZE, 0)
-add_jmp_op(0xFF, "call", False, "d", [OpTypes.Displacement], "3", DEF_OP_SIZE, 0)
-
+add_jmp_op(0xEB, "jmp", False, "d", [OpTypes.Immediate], "", 1)
+add_jmp_op(0xE9, "jmp", False, "d", [OpTypes.Immediate], "", DEF_OP_SIZE)
+add_jmp_op(0xFF, "jmp", True, "m", [OpTypes.RM], "4", 0)
+add_jmp_op(0x74, "jz", False, "d", [OpTypes.Immediate], "", 1)
+add_jmp_op(0x75, "jz", False, "d", [OpTypes.Immediate], "", 1)
+add_jmp_op(0xE8, "call", False, "d", [OpTypes.Immediate], "", DEF_OP_SIZE)
+add_jmp_op(0xFF, "call", False, "d", [OpTypes.Immediate], "3", DEF_OP_SIZE)
 
 TWOB_JUMP_INSTR_LIST = {
 
 }
 
-def add_twob_jump(op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len):
-    add_op_to_list(TWOB_JUMP_INSTR_LIST, op_code, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len)
+def add_twob_jump(op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len):
+    add_op_to_list(TWOB_JUMP_INSTR_LIST, op_code, instr_str, req_rm, encoding, op_types_arr, ext, imm_len)
 
-add_twob_jump(0x85, "jnz", False, "d", [OpTypes.Displacement], "", 4, 0)
+add_twob_jump(0x84, "jnz", False, "d", [OpTypes.Immediate], "", 4)
+add_twob_jump(0x85, "jz", False, "d", [OpTypes.Immediate], "",  4)
 
 MAX_OPCODE_BYTES = 3
 TWO_BYTE_OPCODE = 0xF
@@ -144,20 +181,34 @@ class GLOBAL_REGISTER_NAMES(Enum) :
 
 # Build opcodes that use opcode + rd
 OP_EN_O_OPS = {
-    0x50 : ["push", "o", [OpTypes.RD], "", 0, 0],
-    0x58 : ["pop", "o", [OpTypes.RD], "", 0, 0],
-    0xb8 : ["mov", "oi", [OpTypes.RD, OpTypes.Immediate], "", 0, DEF_OP_SIZE]
+    0x50 : ["push", "o", [OpTypes.RD], "", 0],
+    0x58 : ["pop", "o", [OpTypes.RD], "", 0],
+    0xB8 : ["mov", "oi", [OpTypes.RD, OpTypes.Immediate], "", DEF_OP_SIZE],
+    0x48 : ["dec", "i", [OpTypes.RD], "1", 0],
+    0x40 : ["inc", "o", [OpTypes.RD], "", 0]
 }
 
-def add_op_rd(op_code, base_op, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len):
-    opinf = OpInfo(base_op, instr_str, req_rm, encoding, op_types_arr, ext, disp_len, imm_len)
+def add_op_rd(op_code, base_op, instr_str, req_rm, encoding, op_types_arr, ext, imm_len):
+    opinf = OpInfo(base_op, instr_str, req_rm, encoding, op_types_arr, ext, imm_len)
     add_opinfo_to_list(ONEB_GLOBAL_OPCODE_LIST, op_code, opinf)
 
 
 for reg in GLOBAL_REGISTER_NAMES:
     for op_val in OP_EN_O_OPS:
         entry = OP_EN_O_OPS[op_val]
-        add_op_rd(op_val + reg.value, op_val, entry[0], False, entry[1], entry[2], entry[3], entry[4], entry[5])
+        add_op_rd(op_val + reg.value, op_val, entry[0], False, entry[1], entry[2], entry[3], entry[4])
+
+
+# Sanity check for duplicate ops
+for oplists_key in ONEB_GLOBAL_OPCODE_LIST:
+    exts = set()
+    oplist = ONEB_GLOBAL_OPCODE_LIST[oplists_key]
+    for op in oplist:
+        if op.ext in exts:
+            print("Duplicate opcode found {:s} {:x}".format(op.instr, op.base_op))
+        elif op.ext != "r":
+            exts.add(op.ext)
+
 
 BYTEODER = "little"
 
@@ -264,13 +315,16 @@ def handle_reg(opinfo : OpInfo, instr : Instruction) -> str:
     return GLOBAL_REGISTER_NAMES(instr.reg).name
 
 def handle_rm(opinfo : OpInfo, instr : Instruction) -> str:
+    #if instr.has_sib:
+       # return handle_sibrm(opinfo, instr)
+    
     if instr.mod == 3:
         #print ('r/m32 operand is direct register')
         return GLOBAL_REGISTER_NAMES(instr.rm).name
 
     elif instr.mod == 2:
         #print ('r/m32 operand is [ reg + disp32 ] -> please implement')
-        return GLOBAL_REGISTER_NAMES(instr.rm).name + " + " + format_dword(instr.disp)
+        return "[" + GLOBAL_REGISTER_NAMES(instr.rm).name + " + " + format_dword(instr.disp) + "]"
 
     elif instr.mod == 1:
         #print ('r/m32 operand is [ reg + disp8 ] -> please implement')
@@ -315,7 +369,12 @@ def handle_included(opinfo : OpInfo, instr : Instruction) -> str:
     return ""
 
 def handle_immediate(opinfo : OpInfo, instr : Instruction) -> str:
-    return format_dword(instr.imm)
+    if is_jump(opinfo.base_op):
+        target = instr.orig_addr + instr.imm + instr.total_len
+        LABELS[target] = format_label(target)
+        return LABELS[target]
+    else:
+        return format_dword(instr.imm)
 
 def handle_rd(opinfo : OpInfo, instr : Instruction) -> str:
     return GLOBAL_REGISTER_NAMES(instr.op - opinfo.base_op).name
@@ -332,8 +391,7 @@ OPERAND_HANDLERS = {
     OpTypes.RM : handle_rm,
     OpTypes.Included : handle_included,
     OpTypes.Immediate : handle_immediate,
-    OpTypes.RD : handle_rd,
-    OpTypes.Displacement : handle_displacement
+    OpTypes.RD : handle_rd
 }
 
 def parse_instruction(opcode_info_list, bytes, orig_addr, prefix_bytes) -> Tuple[int, Instruction, OpInfo]:
@@ -362,6 +420,8 @@ def parse_instruction(opcode_info_list, bytes, orig_addr, prefix_bytes) -> Tuple
             idx_of_op = [idx for idx, element in enumerate(opcode_info_list) if condition(element)]
             if len(idx_of_op) == 0:
                 return (0, None, None)
+            if len(idx_of_op) > 1:
+                pass#This is an error, multiple ops with same ext
             else:
                 opinfo = opcode_info_list[idx_of_op[0]]
         else:
@@ -372,6 +432,7 @@ def parse_instruction(opcode_info_list, bytes, orig_addr, prefix_bytes) -> Tuple
         return (0, None, None)
     
     modrm_disp_bytes = 0
+    has_sib = False
 
     # figure out operands
     if opinfo.req_rm:
@@ -386,20 +447,23 @@ def parse_instruction(opcode_info_list, bytes, orig_addr, prefix_bytes) -> Tuple
             modrm_disp_bytes = 4
             
         # if it has modrm, it may have sib
-        has_sib = mod == 0 and rm == 4
+        has_sib = rm == 4 and (mod == 0 or mod == 1 or mod == 2)
         if has_sib:
             (scale, index, base) = parseSIB(bytes[bytes_used])
             bytes_used += 1
+            # exception
+            if mod == 0 and rm == 4 and base == 4:
+                #modrm_disp_bytes = 4
+                pass
 
     op_types = opinfo.op_types
     num_ops = len(op_types)
 
-    has_disp = OpTypes.Displacement in op_types or modrm_disp_bytes > 0
+    has_disp = modrm_disp_bytes > 0
     if has_disp:
         # parse displacement
-        disp_len = max(modrm_disp_bytes, opinfo.disp_len)
-        disp = int.from_bytes(bytes[bytes_used:bytes_used + disp_len], BYTEODER)
-        bytes_used += disp_len
+        disp = int.from_bytes(bytes[bytes_used:bytes_used + modrm_disp_bytes], BYTEODER)
+        bytes_used += modrm_disp_bytes
 
     has_imm = OpTypes.Immediate in op_types
     if has_imm:
@@ -407,7 +471,7 @@ def parse_instruction(opcode_info_list, bytes, orig_addr, prefix_bytes) -> Tuple
         imm = int.from_bytes(bytes[bytes_used:bytes_used + opinfo.imm_len], BYTEODER)
         bytes_used += opinfo.imm_len
 
-    instr = Instruction(prefix, opcode_byte, mod, reg, rm, scale, index, base, disp, modrm_disp_bytes, imm, orig_addr, bytes_used + prefix_bytes)
+    instr = Instruction(prefix, opcode_byte, mod, reg, rm, scale, index, base, disp, modrm_disp_bytes, imm, orig_addr, bytes_used + prefix_bytes, has_sib)
     
     return (bytes_used, instr, opinfo)
 
@@ -440,7 +504,7 @@ def handle_twob_opcode(bytes, orig_addr, bytes_used):
     if num_bytes >= 2:
         opcode_info = TWOB_GLOBAL_OPCODE_LIST[bytes[1]]
         (bytes_used, instruction_str) = handle_opcode(opcode_info, bytes[1:num_bytes], orig_addr, bytes_used)
-        return (bytes_used + 1 + "{:02X}".format(bytes[0]), instruction_str)
+        return (bytes_used + 1, instruction_str)
 
     return (0, "", "")
 
@@ -483,16 +547,16 @@ def disasm_instruction(instr_bytes, orig_addr):
             (op_bytes_used, op_str) = handle_threeb_opcode(instr_bytes[bytes_used:total_bytes], orig_addr)
 
         if op_bytes_used == 0:# actually an unknown op
-            op_bytes_used += 1
-            op_str = format_unknown_instr_str(byte & 0xFF)
+            op_bytes_used = 1
+            op_str = ""
 
         bytes_used += op_bytes_used
         instruction_str += op_str
 
     else:
         #TODO what if had prefix, but next byte isn't a known opcode?
-        bytes_used += 1
-        format_unknown_instr_str(byte & 0xFF)
+        bytes_used = 1
+        instruction_str = ""
 
     return (bytes_used, instruction_str)
 
@@ -506,34 +570,52 @@ def disassemble(bytes):
     byte_idx = 0
     while byte_idx < num_bytes:
         (num_used_bytes, instr_string) = disasm_instruction(bytes[byte_idx : byte_idx+INSTR_MAX_BYTES], byte_idx)
-        address = format_address(byte_idx)
+        
+        if instr_string != "":#op is known
+            address = format_address(byte_idx)
 
-        formatted_str = format_instr(instr_string)
-        
-        if num_used_bytes <= 0:
-            output_list[address] = formatted_str
-        else:
+            formatted_str = format_instr(instr_string)
+            
             output_list[address] = format_byte_str(bytes[byte_idx : byte_idx + num_used_bytes]) + " " + formatted_str
-        
-        byte_idx += num_used_bytes
+            byte_idx += num_used_bytes
+        else:# op is unknown
+            output_list[address] = format_unknown_instr_str(bytes[byte_idx] & 0xFF)
+            byte_idx += 1
 
     printDisasm (output_list)
 
 def getfile(filename):	
     with open(filename, "rb") as f:
         a = f.read()
-    return a		
+    return a
+
+def is_valid_file(parser, arg):
+    fname = arg.strip()
+    if not os.path.exists(fname):
+        parser.error("The file {:s} does not exist!".format(fname))
+    else:
+        return open(fname, 'r')
 
 def main():
-    import sys 
-    if len(sys.argv) < 2:
-        print ("Please enter filename.")
-        sys.exit(0)
-    else:
-        binary = getfile(sys.argv[1])
+    
+    parser = argparse.ArgumentParser(description='Dissassemble an x86 binary starting at pos 0.')
 
-    disassemble(binary)
+    parser.add_argument('-i', type=str, required=True, dest="filename",\
+                        help="x86 binary")
+    
+    args = parser.parse_args()
 
+    filename = args.filename.strip()
+
+    if is_valid_file(parser, filename):
+
+        try: 
+            bytes = getfile(filename)
+        except IOError:
+            parser.error("Could not open {:s}".format(filename))
+            return
+
+        disassemble(bytes)
 
 if __name__ == "__main__":
     main()

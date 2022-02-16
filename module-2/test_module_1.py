@@ -1,6 +1,7 @@
 import sys
 import pathlib
 import shutil
+from os.path import exists
 
 #from disasm_example import disassemble, getfile
 from disasm3 import disassemble, getfile
@@ -47,8 +48,6 @@ def test_large():
     sys.stdout.flush()
 
     direc = str(pathlib.Path(__file__).parent.resolve())
-
-
 
     in_path = direc + '\\data\\large_example.o'
     out_path = direc + '\\data\\large_example_test_out'

@@ -5,8 +5,8 @@
 00000005: 39D1               cmp ecx, edx      
 00000007: 740F               jz offset_00000018h
 00000009: B844434241         mov eax, 0x41424344h
-0000000E: 8B5508             mov edx, [ebp + 08]
-00000011: 8B4D0C             mov ecx, [ebp + 0C]
+0000000E: 8B5508             mov edx, [ebp + 0x08h]
+00000011: 8B4D0C             mov ecx, [ebp + 0x0Ch]
 00000014: 01D1               add ecx, edx      
 00000016: 89C8               mov eax, ecx      
 offset_00000018h:

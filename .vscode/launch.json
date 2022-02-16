@@ -9,7 +9,8 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "args" : ["-i C:\\Users\\Graeme\\Documents\\repos\\jhu-re-va\\module-2\\data\\example1.o"]
         }
     ]
 }
