@@ -2,6 +2,7 @@ import sys
 import pathlib
 import shutil
 from os.path import exists
+import os
 
 #from disasm_example import disassemble, getfile
 from disasm3 import disassemble, getfile
@@ -54,6 +55,28 @@ def test_large():
     out_ext = ".txt"
 
     shutil.copyfile(out_path + out_ext, out_path + "_old" + out_ext)
+
+    # open input object file
+    in_bytes = getfile(in_path)
+
+    # open output file
+    sys.stdout = open(out_path + out_ext, 'w')
+    disassemble(in_bytes)
+    sys.stdout.close()
+
+    assert True
+
+def test_req():
+    sys.stdout.flush()
+
+    direc = str(pathlib.Path(__file__).parent.resolve())
+
+    src_path = direc + '\\data\\req.S'
+    in_path = direc + '\\data\\req.o'
+    out_path = direc + '\\data\\req_out'
+    out_ext = ".txt"
+
+    os.system("nasm " + src_path + " -o " + in_path)
 
     # open input object file
     in_bytes = getfile(in_path)
