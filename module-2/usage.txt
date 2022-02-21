@@ -1,0 +1,17 @@
+695.744
+Project 1 - x86 Disassembler
+Graeme Knowles
+
+Developed on Python 3.8.3
+
+python disasm.py -h
+usage: disasm.py [-h] -i FILENAME
+
+Dissassemble an x86 binary starting at pos 0.
+
+optional arguments:
+  -h, --help   show this help message and exit
+  -i FILENAME  x86 binary
+
+example usage:
+    python disasm.py -i "example_1.o"
